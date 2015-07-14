@@ -13,7 +13,3 @@ Arguments:
 2) type : json or seq
 3) keywords file : wordist_preprocessed.json
 4) outputfile 
-=======
-# dig-phrase-extraction
-Code to extract phrases from text using the Aho-Corasick algorithm
->>>>>>> b41ff980c6bef02d5991fbf26f484aefe89db424
