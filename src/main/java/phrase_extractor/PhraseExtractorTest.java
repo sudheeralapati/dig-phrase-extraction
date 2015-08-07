@@ -27,7 +27,17 @@ import org.json.simple.parser.ParseException;
 
 public class PhraseExtractorTest {
 
-	protected static final String JSONObject = null;
+	private static Broadcast<Trie> bfT_Trie = null;
+	private static Broadcast<Trie> bf_Trie = null;
+	private static Broadcast<Trie> bg_Trie = null;
+	private static Broadcast<Trie> bnfa_Trie = null;
+	private static Broadcast<Trie> bnE_Trie = null;
+	
+	private static final String FIREARMS_TECHNOLOGY = "firearms-technology";
+	private static final String FIREARMS = "firearms";
+	private static final String GANG = "gang";
+	private static final String NFA = "nfa";
+	private static final String NON_ENGLISH = "non-english";
 
 	public static void main(final String[] args) throws IOException, ClassNotFoundException, ParseException {
 		String inputFile = args[0];
@@ -46,11 +56,21 @@ public class PhraseExtractorTest {
 		
 		JSONParser parser = new JSONParser();
 		JSONObject keywordsJsonArray = (JSONObject) parser.parse(wordsListJson);
-		final Trie trie = getTrie(wordsListJson);
+		final Trie fTtrie = getTrie(wordsListJson,FIREARMS_TECHNOLOGY);
+		final Trie ftrie = getTrie(wordsListJson,FIREARMS);
+		final Trie gtrie = getTrie(wordsListJson,GANG);
+		final Trie nfatrie = getTrie(wordsListJson,NFA);
+		final Trie nEtrie = getTrie(wordsListJson,NON_ENGLISH);
+		
 		final JSONObject misspellings = (JSONObject) keywordsJsonArray.get("misspellings");
 		JSONArray wordsList = (JSONArray) keywordsJsonArray.get("wordsList");
 		
-		final Broadcast<Trie> broadcastTrie = sc.broadcast(trie);
+		bfT_Trie = sc.broadcast(fTtrie);
+		bf_Trie = sc.broadcast(ftrie);
+		bg_Trie = sc.broadcast(gtrie);
+		bnfa_Trie = sc.broadcast(nfatrie);
+		bnE_Trie = sc.broadcast(nEtrie);
+		
 		final Broadcast<JSONArray> broadcastWordsList = sc.broadcast(wordsList);
 		final Broadcast<org.json.simple.JSONObject> broadcastMisspellings = sc.broadcast(misspellings);
 
@@ -84,14 +104,16 @@ public class PhraseExtractorTest {
 								JSONObject row = (JSONObject) parser.parse(json.toString());
 								String rawText = (String) ((JSONObject) row
 										.get("_source")).get("raw_text");
-								HashSet<String> keywordsContainedList = new HashSet<String>();
+								
 								HashMap<String, HashSet<String>> keywordsMap = new HashMap<String, HashSet<String>>();
 								JSONArray wordsList = broadcastWordsList.getValue();
 								
 								for (int j = 0; j < wordsList.size(); j++) {
+									HashSet<String> keywordsContainedList = new HashSet<String>();
 									if(rawText != null){
-										Collection<Token> tokens = broadcastTrie.getValue().tokenize(rawText.toLowerCase());
 										JSONObject obj = (JSONObject) wordsList.get(j);
+										Collection<Token> tokens = getBroadcastTrie(obj.get("name").toString()).getValue().tokenize(rawText.toLowerCase());
+										
 										for (Token token : tokens) {
 											if (token.isMatch()) {
 												// takes the correct from misspellings mapping the json file
@@ -108,22 +130,45 @@ public class PhraseExtractorTest {
 							}
 
 						});
+//				words.saveAsTextFile(outputFile);
 							words.saveAsNewAPIHadoopFile(outputFile, Text.class, Text.class, SequenceFileOutputFormat.class);
 			}
 	}
 	
 	
-	private static Trie getTrie(String wordsListJson) throws ParseException{
+	private static Broadcast<Trie> getBroadcastTrie(String name){
+		switch (name) {
+		case FIREARMS_TECHNOLOGY:
+			return bfT_Trie;
+		case FIREARMS:
+			return bf_Trie;
+		case GANG:
+			return bg_Trie;
+		case NFA:
+			return bnfa_Trie;
+		case NON_ENGLISH:
+			return bnE_Trie;
+		default:
+			break;
+		}
+		return null;
+	}
+	
+	
+	private static Trie getTrie(String wordsListJson,String type) throws ParseException{
 		
 		JSONParser parser = new JSONParser();
 		JSONObject keywordsJsonArray = (JSONObject) parser.parse(wordsListJson);
 		JSONArray wordsList = (JSONArray) keywordsJsonArray.get("wordsList");
 		Trie trie = new Trie().removeOverlaps().onlyWholeWords().caseInsensitive();
+		
 		for (int j = 0; j < wordsList.size(); j++) {
 			JSONObject obj = (JSONObject) wordsList.get(j);
-			ArrayList<String> wordList = (ArrayList<String>) obj.get("words");
-			for (String word : wordList) {
-				trie.addKeyword(word.toLowerCase());
+			if (type.equals(obj.get("name").toString())) {
+				ArrayList<String> wordList = (ArrayList<String>) obj.get("words");
+				for (String word : wordList) {
+					trie.addKeyword(word.toLowerCase());
+				}
 			}
 
 		}
