@@ -2,6 +2,7 @@ package phrase_extractor;
 
 import java.io.File;
 import java.io.IOException;
+import java.text.Normalizer;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
@@ -10,6 +11,7 @@ import java.util.HashSet;
 import org.ahocorasick.trie.Token;
 import org.ahocorasick.trie.Trie;
 import org.apache.commons.io.FileUtils;
+import org.apache.commons.lang.CharSet;
 import org.apache.hadoop.io.Text;
 import org.apache.hadoop.mapreduce.lib.output.SequenceFileOutputFormat;
 import org.apache.spark.SparkConf;
@@ -18,11 +20,14 @@ import org.apache.spark.api.java.JavaRDD;
 import org.apache.spark.api.java.JavaSparkContext;
 import org.apache.spark.api.java.function.FlatMapFunction;
 import org.apache.spark.api.java.function.Function;
+import org.apache.spark.api.java.function.PairFunction;
 import org.apache.spark.broadcast.Broadcast;
 import org.json.simple.JSONArray;
 import org.json.simple.JSONObject;
 import org.json.simple.parser.JSONParser;
 import org.json.simple.parser.ParseException;
+
+import scala.Tuple2;
 
 
 public class PhraseExtractor {
@@ -44,6 +49,7 @@ public class PhraseExtractor {
 		String type = args[1];
 		String keywordsFile = args[2];
 		String outputFile = args[3];
+		Integer numofPartitions = Integer.parseInt(args[4]);
 
 		SparkConf conf = new SparkConf().setAppName("findKeywords").setMaster("local").registerKryoClasses(new Class<?>[]{
 				Class.forName("org.apache.hadoop.io.LongWritable"),
@@ -74,25 +80,116 @@ public class PhraseExtractor {
 		final Broadcast<JSONArray> broadcastWordsList = sc.broadcast(wordsList);
 		final Broadcast<org.json.simple.JSONObject> broadcastMisspellings = sc.broadcast(misspellings);
 
-			if (type.equals("json")) {
-				JavaRDD<String> jsonRDD = sc.textFile(inputFile);
+			if (type.equals("text")) {
+				JavaRDD<String> jsonRDD = sc.textFile(inputFile,numofPartitions);
+				
+				JavaPairRDD<Text, Text> wordsRDD= jsonRDD.mapToPair(new PairFunction<String, Text, Text>() {
+					@Override
+					public Tuple2<Text, Text> call(String line) throws Exception {
+
+						JSONParser parser = new JSONParser();
+						String doc = line.split("\t")[1];
+						JSONObject row = (JSONObject) parser.parse(doc);
+						String rawText = null;
+						if(row.containsKey("raw_text")){
+							rawText = (String) row.get("raw_text");
+						}else if(row.containsKey("_source")){
+							rawText = (String) ((JSONObject) row.get("_source")).get("raw_text");
+						}
+						
+						HashMap<String, HashSet<String>> keywordsMap = new HashMap<String, HashSet<String>>();
+						JSONArray wordsList = broadcastWordsList.getValue();
+						
+						for (int j = 0; j < wordsList.size(); j++) {
+							HashSet<String> keywordsContainedList = new HashSet<String>();
+							if(rawText != null){
+								JSONObject obj = (JSONObject) wordsList.get(j);
+								Collection<Token> tokens = getBroadcastTrie(obj.get("name").toString()).getValue().tokenize(rawText.toLowerCase());
+								
+								for (Token token : tokens) {
+									if (token.isMatch()) {
+										// takes the correct from misspellings mapping the json file
+										// for getting the correct word
+//										String correct_word = (String) broadcastMisspellings.getValue().get(token.getFragment().toLowerCase());
+//										keywordsContainedList.add("\""+ correct_word + "\"");
+										if(token.getFragment() != null)
+											keywordsContainedList.add("\"" + token.getFragment() + "\"");
+									}
+								}
+								keywordsMap.put((String) obj.get("name"),keywordsContainedList);
+							}
+							row.put("wordslists", keywordsMap);
+							}
+						
+						return new Tuple2<Text, Text>(new Text(line.split("\t")[0]), new Text(row.toJSONString()));
+						
+						
+					}
+				});
+				wordsRDD.saveAsNewAPIHadoopFile(outputFile, Text.class, Text.class, SequenceFileOutputFormat.class);
+				
+				/*
 				JavaRDD<String> words = jsonRDD.flatMap(new FlatMapFunction<String, String>() {
 							@Override
-							public Iterable<String> call(String x) throws Exception {
+							public Iterable<String> call(String line) throws Exception {
 								JSONParser parser = new JSONParser();
-								JSONArray offersJsonArray = (JSONArray) parser
-										.parse(x);
-								for (int i = 0; i < offersJsonArray.size(); i++) {
-									JSONObject row = (JSONObject) offersJsonArray.get(i);
-									String rawText = (String) row.get("raw_text");
-									HashMap<String, HashSet<String>> keywordsExtracted = extractKeywords(rawText, wordsListJson);
-									row.put("wordlists", keywordsExtracted);
+								String doc = line.split("\t")[1];
+								JSONObject row = (JSONObject) parser.parse(doc);
+								String rawText = null;
+								if(row.containsKey("raw_text")){
+									rawText = (String) row.get("raw_text");
+								}else if(row.containsKey("_source")){
+									rawText = (String) ((JSONObject) row.get("_source")).get("raw_text");
 								}
-								return Arrays.asList(offersJsonArray.toJSONString());
+								
+								HashMap<String, HashSet<String>> keywordsMap = new HashMap<String, HashSet<String>>();
+								JSONArray wordsList = broadcastWordsList.getValue();
+								
+								for (int j = 0; j < wordsList.size(); j++) {
+									HashSet<String> keywordsContainedList = new HashSet<String>();
+									if(rawText != null){
+										JSONObject obj = (JSONObject) wordsList.get(j);
+										Collection<Token> tokens = getBroadcastTrie(obj.get("name").toString()).getValue().tokenize(rawText.toLowerCase());
+										
+										for (Token token : tokens) {
+											if (token.isMatch()) {
+												// takes the correct from misspellings mapping the json file
+												// for getting the correct word
+//												String correct_word = (String) broadcastMisspellings.getValue().get(token.getFragment().toLowerCase());
+//												keywordsContainedList.add("\""+ correct_word + "\"");
+												if(token.getFragment() != null)
+													keywordsContainedList.add("\"" + token.getFragment() + "\"");
+											}
+										}
+										keywordsMap.put((String) obj.get("name"),keywordsContainedList);
+									}
+									row.put("wordslists", keywordsMap);
+									row.remove("raw_text");
+									}
+								
+								return Arrays.asList(new String(row.toJSONString()));
+								
+								
 							}
 						});
-				words.saveAsTextFile(outputFile);
-
+//				words.saveAsTextFile(outputFile+"-text");
+					
+				JavaPairRDD<Text, Text> wordsSeqRDD = words.mapToPair(new PairFunction<String, Text, Text>() {
+					@Override
+					public Tuple2<Text, Text> call(String line) throws Exception {
+						
+						JSONParser parser = new JSONParser();
+//						line = Normalizer.normalize(line, Normalizer.Form.NFD);
+						line = new String(line.getBytes("ASCII"));
+						JSONObject doc = (JSONObject) parser.parse(line);
+						Text urlText = new Text(doc.get("url").toString());
+						Text lineText = new Text(line);
+						return new Tuple2<Text, Text>(urlText, lineText);	
+					}
+				
+				});
+					wordsSeqRDD.saveAsNewAPIHadoopFile(outputFile, Text.class, Text.class, SequenceFileOutputFormat.class);
+*/
 			} else {
 				JavaPairRDD<Text, Text> sequenceRDD = sc.sequenceFile(inputFile, Text.class, Text.class);
 
