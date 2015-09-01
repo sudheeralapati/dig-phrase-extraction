@@ -91,8 +91,8 @@ public class PhraseExtractor {
 					String doc = line.split("\t")[1];
 					JSONObject row = (JSONObject) parser.parse(doc);
 					String rawText = null;
-					if(row.containsKey("raw_text")){
-						rawText = (String) row.get("raw_text");
+					if(row.containsKey("text")){
+						rawText = (String) row.get("text");
 					}else if(row.containsKey("_source")){
 						rawText = (String) ((JSONObject) row.get("_source")).get("raw_text");
 					}
@@ -117,8 +117,8 @@ public class PhraseExtractor {
 								}
 							}
 							keywordsMap.put((String) obj.get("name"),keywordsContainedList);
+							row.put("wordslists", keywordsMap);
 						}
-						row.put("wordslists", keywordsMap);
 					}
 
 					return new Tuple2<Text, Text>(new Text(line.split("\t")[0]), new Text(row.toJSONString()));
@@ -137,8 +137,12 @@ public class PhraseExtractor {
 
 					JSONParser parser = new JSONParser();
 					JSONObject row = (JSONObject) parser.parse(json.toString());
-					String rawText = (String) ((JSONObject) row
-							.get("_source")).get("raw_text");
+					String rawText = null;
+					if(row.containsKey("text")){
+						rawText = (String) row.get("text");
+					}else if(row.containsKey("_source")){
+						rawText = (String) ((JSONObject) row.get("_source")).get("raw_text");
+					}
 
 					HashMap<String, HashSet<String>> keywordsMap = new HashMap<String, HashSet<String>>();
 					JSONArray wordsList = broadcastWordsList.getValue();
@@ -152,13 +156,15 @@ public class PhraseExtractor {
 							for (Token token : tokens) {
 								if (token.isMatch()) {
 									// takes the correct from misspellings mapping the json file
-									String correct_word = (String) broadcastMisspellings.getValue().get(token.getFragment().toLowerCase());
-									keywordsContainedList.add("\""+ correct_word + "\"");
+//									String correct_word = (String) broadcastMisspellings.getV	alue().get(token.getFragment().toLowerCase());
+//									keywordsContainedList.add("\""+ correct_word + "\"");
+									if(token.getFragment() != null)
+										keywordsContainedList.add("\"" + token.getFragment() + "\"");
 								}
 							}
 							keywordsMap.put((String) obj.get("name"),keywordsContainedList);
+							row.put("wordslists", keywordsMap);		
 						}
-						row.put("wordslists", keywordsMap);		
 					}
 
 					return Arrays.asList(new Text(row.toJSONString()));
@@ -211,41 +217,5 @@ public class PhraseExtractor {
 		return trie;
 
 	}
-
-
-	// this extracts the keywords which are present in all the 5 files from the raw_text
-	private static HashMap<String, HashSet<String>> extractKeywords(String rawText,String wordsListJson) throws ParseException{
-		JSONParser parser = new JSONParser();
-		JSONObject keywordsJsonArray = (JSONObject) parser.parse(wordsListJson);
-		JSONArray wordsList = (JSONArray) keywordsJsonArray.get("wordsList");
-		JSONObject misspellings = (JSONObject) keywordsJsonArray.get("misspellings");
-
-		HashMap<String, HashSet<String>> keywordsMap = new HashMap<String, HashSet<String>>();
-		for (int j = 0; j < wordsList.size(); j++) {
-
-			Trie trie = new Trie().removeOverlaps().onlyWholeWords().caseInsensitive();
-			HashSet<String> keywordsContainedList = new HashSet<String>();
-			JSONObject obj = (JSONObject) wordsList.get(j);
-			ArrayList<String> wordList = (ArrayList<String>) obj.get("words");
-			for (String word : wordList) {
-				trie.addKeyword(word.toLowerCase());
-			}
-			Collection<Token> tokens = trie.tokenize(rawText.toLowerCase());
-			for (Token token : tokens) {
-				if (token.isMatch()) {
-					// takes the correct from misspellings mapping the json file
-					String correct_word = (String) misspellings.get(token.getFragment().toLowerCase());
-					keywordsContainedList.add("\""+correct_word+"\"");
-				}
-			}
-			keywordsMap.put((String) obj.get("name"),keywordsContainedList);
-
-		}
-
-		return keywordsMap;
-	}
-
-
-
 
 }
