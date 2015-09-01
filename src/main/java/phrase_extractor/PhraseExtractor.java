@@ -51,7 +51,7 @@ public class PhraseExtractor {
 		String outputFile = args[3];
 		Integer numofPartitions = Integer.parseInt(args[4]);
 
-		SparkConf conf = new SparkConf().setAppName("findKeywords").setMaster("local").registerKryoClasses(new Class<?>[]{
+		SparkConf conf = new SparkConf().setAppName("findKeywords").registerKryoClasses(new Class<?>[]{
 				Class.forName("org.apache.hadoop.io.LongWritable"),
 				Class.forName("org.apache.hadoop.io.Text")
 		});
