@@ -91,10 +91,10 @@ public class PhraseExtractor {
 					String doc = line.split("\t")[1];
 					JSONObject row = (JSONObject) parser.parse(doc);
 					String rawText = null;
-					if(row.containsKey("raw_text")){
-						rawText = (String) row.get("raw_text");
+					if(row.containsKey("text")){
+						rawText = (String) row.get("text");
 					}else if(row.containsKey("_source")){
-						rawText = (String) ((JSONObject) row.get("_source")).get("raw_text");
+						rawText = (String) ((JSONObject) row.get("_source")).get("text");
 					}
 
 					HashMap<String, HashSet<String>> keywordsMap = new HashMap<String, HashSet<String>>();
@@ -137,28 +137,30 @@ public class PhraseExtractor {
 
 					JSONParser parser = new JSONParser();
 					JSONObject row = (JSONObject) parser.parse(json.toString());
-					String rawText = (String) ((JSONObject) row
-							.get("_source")).get("raw_text");
+					if(row.containsKey("text")){
+						String rawText = row.get("text").toString();
+					
 
-					HashMap<String, HashSet<String>> keywordsMap = new HashMap<String, HashSet<String>>();
-					JSONArray wordsList = broadcastWordsList.getValue();
-
-					for (int j = 0; j < wordsList.size(); j++) {
-						HashSet<String> keywordsContainedList = new HashSet<String>();
-						if(rawText != null){
-							JSONObject obj = (JSONObject) wordsList.get(j);
-							Collection<Token> tokens = getBroadcastTrie(obj.get("name").toString()).getValue().tokenize(rawText.toLowerCase());
-
-							for (Token token : tokens) {
-								if (token.isMatch()) {
-									// takes the correct from misspellings mapping the json file
-									String correct_word = (String) broadcastMisspellings.getValue().get(token.getFragment().toLowerCase());
-									keywordsContainedList.add("\""+ correct_word + "\"");
+						HashMap<String, HashSet<String>> keywordsMap = new HashMap<String, HashSet<String>>();
+						JSONArray wordsList = broadcastWordsList.getValue();
+	
+						for (int j = 0; j < wordsList.size(); j++) {
+							HashSet<String> keywordsContainedList = new HashSet<String>();
+							if(rawText != null){
+								JSONObject obj = (JSONObject) wordsList.get(j);
+								Collection<Token> tokens = getBroadcastTrie(obj.get("name").toString()).getValue().tokenize(rawText.toLowerCase());
+	
+								for (Token token : tokens) {
+									if (token.isMatch()) {
+										// takes the correct from misspellings mapping the json file
+										String correct_word = (String) broadcastMisspellings.getValue().get(token.getFragment().toLowerCase());
+										keywordsContainedList.add("\""+ correct_word + "\"");
+									}
 								}
+								keywordsMap.put((String) obj.get("name"),keywordsContainedList);
 							}
-							keywordsMap.put((String) obj.get("name"),keywordsContainedList);
+							row.put("wordslists", keywordsMap);	
 						}
-						row.put("wordslists", keywordsMap);		
 					}
 
 					return Arrays.asList(new Text(row.toJSONString()));
