@@ -174,11 +174,6 @@ public class PhraseExtractor {
 										}
 									}
 									keywordsMap.put((String) obj.get("name"),keywordsContainedList);
-									/*
-									HashSet<String> garbage = new HashSet<String>();
-									garbage.add(triemap.toString());
-									keywordsMap.put((String) obj.get("name"),garbage);
-									*/
 								}
 							}
 						}
