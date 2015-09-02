@@ -45,19 +45,18 @@ public class PhraseExtractor {
 		String keywordsFile = args[2];
 		String outputFile = args[3];
 		Integer numofPartitions = Integer.parseInt(args[4]);
+		final String allowMisspellings = args[5];
 
-		/*
+/*		
 		SparkConf conf = new SparkConf().setAppName("findKeywords").set("spark.io.compression.codec", "lzf").setMaster("local").registerKryoClasses(new Class<?>[]{
 				Class.forName("org.apache.hadoop.io.LongWritable"),
 				Class.forName("org.apache.hadoop.io.Text")
 		});
-		*/
-		
+	*/	
 		SparkConf conf = new SparkConf().setAppName("findKeywords").registerKryoClasses(new Class<?>[]{
 				Class.forName("org.apache.hadoop.io.LongWritable"),
 				Class.forName("org.apache.hadoop.io.Text")
 		});
-
 		@SuppressWarnings("resource")
 		JavaSparkContext sc = new JavaSparkContext(conf);
 		JavaRDD<String> keywordsRDD = sc.textFile(keywordsFile);
@@ -114,12 +113,14 @@ public class PhraseExtractor {
 
 							for (Token token : tokens) {
 								if (token.isMatch()) {
-									// takes the correct from misspellings mapping the json file
-									// for getting the correct word
-									//										String correct_word = (String) broadcastMisspellings.getValue().get(token.getFragment().toLowerCase());
-									//										keywordsContainedList.add("\""+ correct_word + "\"");
+									if(allowMisspellings.toLowerCase().equals("true")){
+//									 takes the correct from misspellings mapping the json file
+										String correct_word = (String) broadcastMisspellings.getValue().get(token.getFragment().toLowerCase());
+										keywordsContainedList.add("\""+ correct_word + "\"");
+									}else{
 									if(token.getFragment() != null)
 										keywordsContainedList.add("\"" + token.getFragment() + "\"");
+									}
 								}
 							}
 							keywordsMap.put((String) obj.get("name"),keywordsContainedList);
@@ -146,7 +147,7 @@ public class PhraseExtractor {
 				JSONObject row = (JSONObject) parser.parse(tuple._2().toString());
 				
 				HashMap<String, HashSet<String>> keywordsMap = new HashMap<String, HashSet<String>>();
-				Text uri = new Text((String) row.get("uri"));
+				String uri = ((String) row.get("uri"));
 				
 				if(row.containsKey("text")){
 					String rawText = row.get("text").toString();
@@ -166,11 +167,14 @@ public class PhraseExtractor {
 									
 									for (Token token : tokens) {
 										if (token.isMatch()) {
-											// takes the correct from misspellings mapping the json file
-//									String correct_word = (String) broadcastMisspellings.getValue().get(token.getFragment().toLowerCase());
-//									keywordsContainedList.add("\""+ correct_word + "\"");
+											if(allowMisspellings.toLowerCase().equals("true")){
+//											 takes the correct from misspellings mapping the json file
+												String correct_word = (String) broadcastMisspellings.getValue().get(token.getFragment().toLowerCase());
+												keywordsContainedList.add("\""+ correct_word + "\"");
+											}else{
 											if(token.getFragment() != null)
 												keywordsContainedList.add("\"" + token.getFragment() + "\"");
+											}
 										}
 									}
 									keywordsMap.put((String) obj.get("name"),keywordsContainedList);
@@ -181,14 +185,12 @@ public class PhraseExtractor {
 				}			
 				JSONObject jsonOutput = new JSONObject();
 				jsonOutput.put("wordslists", keywordsMap);
-				jsonOutput.put("uri", uri);
+				jsonOutput.put("uri",uri);
 				
-				return new Tuple2<Text, Text>(uri, new Text(jsonOutput.toJSONString()));
+				return new Tuple2<Text, Text>(new Text(uri), new Text(jsonOutput.toJSONString()));
 			}
 			
-			
 			});
-			
 			
 //			words.saveAsTextFile(outputFile + new Random().nextInt());
 			words.saveAsNewAPIHadoopFile(outputFile, Text.class, Text.class, SequenceFileOutputFormat.class);
