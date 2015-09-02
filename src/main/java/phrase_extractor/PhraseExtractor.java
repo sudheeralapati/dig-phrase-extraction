@@ -1,25 +1,24 @@
 package phrase_extractor;
 
-import java.io.File;
 import java.io.IOException;
-import java.text.Normalizer;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Map;
+import java.util.Random;
+import java.util.Set;
+
 import org.ahocorasick.trie.Token;
 import org.ahocorasick.trie.Trie;
-import org.apache.commons.io.FileUtils;
-import org.apache.commons.lang.CharSet;
+import org.apache.commons.logging.impl.Log4jFactory;
 import org.apache.hadoop.io.Text;
 import org.apache.hadoop.mapreduce.lib.output.SequenceFileOutputFormat;
+import org.apache.log4j.Logger;
 import org.apache.spark.SparkConf;
 import org.apache.spark.api.java.JavaPairRDD;
 import org.apache.spark.api.java.JavaRDD;
 import org.apache.spark.api.java.JavaSparkContext;
-import org.apache.spark.api.java.function.FlatMapFunction;
-import org.apache.spark.api.java.function.Function;
 import org.apache.spark.api.java.function.PairFunction;
 import org.apache.spark.broadcast.Broadcast;
 import org.json.simple.JSONArray;
@@ -32,11 +31,7 @@ import scala.Tuple2;
 
 public class PhraseExtractor {
 
-	private static Broadcast<Trie> bfT_Trie = null;
-	private static Broadcast<Trie> bf_Trie = null;
-	private static Broadcast<Trie> bg_Trie = null;
-	private static Broadcast<Trie> bnfa_Trie = null;
-	private static Broadcast<Trie> bnE_Trie = null;
+	private static Logger LOG = Logger.getLogger(PhraseExtractor.class);
 
 	private static final String FIREARMS_TECHNOLOGY = "firearms-technology";
 	private static final String FIREARMS = "firearms";
@@ -51,10 +46,19 @@ public class PhraseExtractor {
 		String outputFile = args[3];
 		Integer numofPartitions = Integer.parseInt(args[4]);
 
+		/*
+		SparkConf conf = new SparkConf().setAppName("findKeywords").set("spark.io.compression.codec", "lzf").setMaster("local").registerKryoClasses(new Class<?>[]{
+				Class.forName("org.apache.hadoop.io.LongWritable"),
+				Class.forName("org.apache.hadoop.io.Text")
+		});
+		*/
+		
 		SparkConf conf = new SparkConf().setAppName("findKeywords").registerKryoClasses(new Class<?>[]{
 				Class.forName("org.apache.hadoop.io.LongWritable"),
 				Class.forName("org.apache.hadoop.io.Text")
 		});
+
+		@SuppressWarnings("resource")
 		JavaSparkContext sc = new JavaSparkContext(conf);
 		JavaRDD<String> keywordsRDD = sc.textFile(keywordsFile);
 		final String wordsListJson = keywordsRDD.first();
@@ -71,12 +75,14 @@ public class PhraseExtractor {
 		final JSONObject misspellings = (JSONObject) keywordsJsonArray.get("misspellings");
 		JSONArray wordsList = (JSONArray) keywordsJsonArray.get("wordsList");
 
-		bfT_Trie = sc.broadcast(fTtrie);
-		bf_Trie = sc.broadcast(ftrie);
-		bg_Trie = sc.broadcast(gtrie);
-		bnfa_Trie = sc.broadcast(nfatrie);
-		bnE_Trie = sc.broadcast(nEtrie);
-
+		Map<String, Trie> triemap = new HashMap<String, Trie>();
+		triemap.put(FIREARMS_TECHNOLOGY, fTtrie);
+		triemap.put(FIREARMS, ftrie);
+		triemap.put(GANG, gtrie);
+		triemap.put(NFA, nfatrie);
+		triemap.put(NON_ENGLISH, nEtrie);
+	
+		final Broadcast<Map<String, Trie>> broadcastedtriemap = sc.broadcast(triemap);
 		final Broadcast<JSONArray> broadcastWordsList = sc.broadcast(wordsList);
 		final Broadcast<org.json.simple.JSONObject> broadcastMisspellings = sc.broadcast(misspellings);
 
@@ -104,7 +110,7 @@ public class PhraseExtractor {
 						HashSet<String> keywordsContainedList = new HashSet<String>();
 						if(rawText != null){
 							JSONObject obj = (JSONObject) wordsList.get(j);
-							Collection<Token> tokens = getBroadcastTrie(obj.get("name").toString()).getValue().tokenize(rawText.toLowerCase());
+							Collection<Token> tokens = broadcastedtriemap.value().get(obj.get("name").toString()).tokenize(rawText.toLowerCase());
 
 							for (Token token : tokens) {
 								if (token.isMatch()) {
@@ -130,65 +136,69 @@ public class PhraseExtractor {
 
 		} else {
 			JavaPairRDD<Text, Text> sequenceRDD = sc.sequenceFile(inputFile, Text.class, Text.class);
+			
+			
+			JavaPairRDD<Text, Text> words = sequenceRDD.mapToPair(new PairFunction<Tuple2<Text,Text>, Text, Text>() {
+			@Override
+			public Tuple2<Text, Text> call(Tuple2<Text, Text> tuple) throws Exception {
 
-			JavaPairRDD<Text, Text> words = sequenceRDD.flatMapValues(new Function<Text, Iterable<Text>>() {
-				@Override
-				public Iterable<Text> call(Text json) throws Exception {
+				JSONParser parser = new JSONParser();
+				JSONObject row = (JSONObject) parser.parse(tuple._2().toString());
+				
+				HashMap<String, HashSet<String>> keywordsMap = new HashMap<String, HashSet<String>>();
+				Text uri = new Text((String) row.get("uri"));
+				
+				if(row.containsKey("text")){
+					String rawText = row.get("text").toString();
+					
+					JSONArray wordsList = broadcastWordsList.getValue();
 
-					JSONParser parser = new JSONParser();
-					JSONObject row = (JSONObject) parser.parse(json.toString());
-					if(row.containsKey("text")){
-						String rawText = row.get("text").toString();
-						HashMap<String, HashSet<String>> keywordsMap = new HashMap<String, HashSet<String>>();
-						JSONArray wordsList = broadcastWordsList.getValue();
-	
-						for (int j = 0; j < wordsList.size(); j++) {
-							HashSet<String> keywordsContainedList = new HashSet<String>();
-							if(rawText != null){
-								JSONObject obj = (JSONObject) wordsList.get(j);
-								Collection<Token> tokens = getBroadcastTrie(obj.get("name").toString()).getValue().tokenize(rawText.toLowerCase());
-	
-								for (Token token : tokens) {
-									if (token.isMatch()) {
-										// takes the correct from misspellings mapping the json file
-										String correct_word = (String) broadcastMisspellings.getValue().get(token.getFragment().toLowerCase());
-										keywordsContainedList.add("\""+ correct_word + "\"");
+					for (int j = 0; j < wordsList.size(); j++) {
+						HashSet<String> keywordsContainedList = new HashSet<String>();
+						if(rawText != null){
+							JSONObject obj = (JSONObject) wordsList.get(j);
+							if(obj != null && null != obj.get("name"))
+							{
+								Map<String, Trie> triemap = broadcastedtriemap.value();
+								if(triemap != null && triemap.get(obj.get("name").toString()) != null)
+								{
+									Collection<Token> tokens = triemap.get(obj.get("name").toString()).tokenize(rawText.toLowerCase());
+									
+									for (Token token : tokens) {
+										if (token.isMatch()) {
+											// takes the correct from misspellings mapping the json file
+//									String correct_word = (String) broadcastMisspellings.getValue().get(token.getFragment().toLowerCase());
+//									keywordsContainedList.add("\""+ correct_word + "\"");
+											if(token.getFragment() != null)
+												keywordsContainedList.add("\"" + token.getFragment() + "\"");
+										}
 									}
+									keywordsMap.put((String) obj.get("name"),keywordsContainedList);
+									/*
+									HashSet<String> garbage = new HashSet<String>();
+									garbage.add(triemap.toString());
+									keywordsMap.put((String) obj.get("name"),garbage);
+									*/
 								}
-								keywordsMap.put((String) obj.get("name"),keywordsContainedList);
-								row.put("wordslists", keywordsMap);	
 							}
 						}
 					}
-
-					return Arrays.asList(new Text(row.toJSONString()));
-				}
-
+				}			
+				JSONObject jsonOutput = new JSONObject();
+				jsonOutput.put("wordslists", keywordsMap);
+				jsonOutput.put("uri", uri);
+				
+				return new Tuple2<Text, Text>(uri, new Text(jsonOutput.toJSONString()));
+			}
+			
+			
 			});
-			//				words.saveAsTextFile(outputFile);
+			
+			
+//			words.saveAsTextFile(outputFile + new Random().nextInt());
 			words.saveAsNewAPIHadoopFile(outputFile, Text.class, Text.class, SequenceFileOutputFormat.class);
 		}
 	}
-
-
-	private static Broadcast<Trie> getBroadcastTrie(String name){
-		switch (name) {
-		case FIREARMS_TECHNOLOGY:
-			return bfT_Trie;
-		case FIREARMS:
-			return bf_Trie;
-		case GANG:
-			return bg_Trie;
-		case NFA:
-			return bnfa_Trie;
-		case NON_ENGLISH:
-			return bnE_Trie;
-		default:
-			break;
-		}
-		return null;
-	}
-
 
 	private static Trie getTrie(String wordsListJson,String type) throws ParseException{
 
