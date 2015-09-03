@@ -45,18 +45,20 @@ public class PhraseExtractor {
 		String keywordsFile = args[2];
 		String outputFile = args[3];
 		Integer numofPartitions = Integer.parseInt(args[4]);
-		final String allowMisspellings = args[5];
 
-/*		
+		/*
 		SparkConf conf = new SparkConf().setAppName("findKeywords").set("spark.io.compression.codec", "lzf").setMaster("local").registerKryoClasses(new Class<?>[]{
 				Class.forName("org.apache.hadoop.io.LongWritable"),
 				Class.forName("org.apache.hadoop.io.Text")
 		});
-	*/	
+		*/
+		
 		SparkConf conf = new SparkConf().setAppName("findKeywords").registerKryoClasses(new Class<?>[]{
 				Class.forName("org.apache.hadoop.io.LongWritable"),
 				Class.forName("org.apache.hadoop.io.Text")
 		});
+		
+		
 		@SuppressWarnings("resource")
 		JavaSparkContext sc = new JavaSparkContext(conf);
 		JavaRDD<String> keywordsRDD = sc.textFile(keywordsFile);
@@ -113,14 +115,14 @@ public class PhraseExtractor {
 
 							for (Token token : tokens) {
 								if (token.isMatch()) {
-									if(allowMisspellings.toLowerCase().equals("true")){
+//									if(allowMisspellings.toLowerCase().equals("true")){
 //									 takes the correct from misspellings mapping the json file
-										String correct_word = (String) broadcastMisspellings.getValue().get(token.getFragment().toLowerCase());
-										keywordsContainedList.add("\""+ correct_word + "\"");
-									}else{
+//										String correct_word = (String) broadcastMisspellings.getValue().get(token.getFragment().toLowerCase());
+//										keywordsContainedList.add("\""+ correct_word + "\"");
+//									}else{
 									if(token.getFragment() != null)
 										keywordsContainedList.add("\"" + token.getFragment() + "\"");
-									}
+//									}
 								}
 							}
 							keywordsMap.put((String) obj.get("name"),keywordsContainedList);
@@ -136,7 +138,7 @@ public class PhraseExtractor {
 			wordsRDD.saveAsNewAPIHadoopFile(outputFile, Text.class, Text.class, SequenceFileOutputFormat.class);
 
 		} else {
-			JavaPairRDD<Text, Text> sequenceRDD = sc.sequenceFile(inputFile, Text.class, Text.class);
+			JavaPairRDD<Text, Text> sequenceRDD = sc.sequenceFile(inputFile, Text.class, Text.class,numofPartitions);
 			
 			
 			JavaPairRDD<Text, Text> words = sequenceRDD.mapToPair(new PairFunction<Tuple2<Text,Text>, Text, Text>() {
@@ -167,14 +169,14 @@ public class PhraseExtractor {
 									
 									for (Token token : tokens) {
 										if (token.isMatch()) {
-											if(allowMisspellings.toLowerCase().equals("true")){
+//											if(allowMisspellings.toLowerCase().equals("true")){
 //											 takes the correct from misspellings mapping the json file
-												String correct_word = (String) broadcastMisspellings.getValue().get(token.getFragment().toLowerCase());
-												keywordsContainedList.add("\""+ correct_word + "\"");
-											}else{
+//												String correct_word = (String) broadcastMisspellings.getValue().get(token.getFragment().toLowerCase());
+//												keywordsContainedList.add("\""+ correct_word + "\"");
+//											}else{
 											if(token.getFragment() != null)
 												keywordsContainedList.add("\"" + token.getFragment() + "\"");
-											}
+//											}
 										}
 									}
 									keywordsMap.put((String) obj.get("name"),keywordsContainedList);
@@ -193,6 +195,7 @@ public class PhraseExtractor {
 			});
 			
 //			words.saveAsTextFile(outputFile + new Random().nextInt());
+//			words = words.coalesce(numofPartitions);
 			words.saveAsNewAPIHadoopFile(outputFile, Text.class, Text.class, SequenceFileOutputFormat.class);
 		}
 	}
