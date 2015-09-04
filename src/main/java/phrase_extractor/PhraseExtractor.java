@@ -32,12 +32,7 @@ import scala.Tuple2;
 public class PhraseExtractor {
 
 	private static Logger LOG = Logger.getLogger(PhraseExtractor.class);
-
-	private static final String FIREARMS_TECHNOLOGY = "firearms-technology";
-	private static final String FIREARMS = "firearms";
-	private static final String GANG = "gang";
-	private static final String NFA = "nfa";
-	private static final String NON_ENGLISH = "non-english";
+	
 
 	public static void main(final String[] args) throws IOException, ClassNotFoundException, ParseException {
 		String inputFile = args[0];
@@ -52,12 +47,10 @@ public class PhraseExtractor {
 				Class.forName("org.apache.hadoop.io.Text")
 		});
 		*/
-		
 		SparkConf conf = new SparkConf().setAppName("findKeywords").registerKryoClasses(new Class<?>[]{
 				Class.forName("org.apache.hadoop.io.LongWritable"),
 				Class.forName("org.apache.hadoop.io.Text")
 		});
-		
 		
 		@SuppressWarnings("resource")
 		JavaSparkContext sc = new JavaSparkContext(conf);
@@ -67,21 +60,12 @@ public class PhraseExtractor {
 
 		JSONParser parser = new JSONParser();
 		JSONObject keywordsJsonArray = (JSONObject) parser.parse(wordsListJson);
-		final Trie fTtrie = getTrie(wordsListJson,FIREARMS_TECHNOLOGY);
-		final Trie ftrie = getTrie(wordsListJson,FIREARMS);
-		final Trie gtrie = getTrie(wordsListJson,GANG);
-		final Trie nfatrie = getTrie(wordsListJson,NFA);
-		final Trie nEtrie = getTrie(wordsListJson,NON_ENGLISH);
 
 		final JSONObject misspellings = (JSONObject) keywordsJsonArray.get("misspellings");
 		JSONArray wordsList = (JSONArray) keywordsJsonArray.get("wordsList");
 
 		Map<String, Trie> triemap = new HashMap<String, Trie>();
-		triemap.put(FIREARMS_TECHNOLOGY, fTtrie);
-		triemap.put(FIREARMS, ftrie);
-		triemap.put(GANG, gtrie);
-		triemap.put(NFA, nfatrie);
-		triemap.put(NON_ENGLISH, nEtrie);
+		createTries(wordsListJson,triemap);
 	
 		final Broadcast<Map<String, Trie>> broadcastedtriemap = sc.broadcast(triemap);
 		final Broadcast<JSONArray> broadcastWordsList = sc.broadcast(wordsList);
@@ -157,16 +141,13 @@ public class PhraseExtractor {
 					JSONArray wordsList = broadcastWordsList.getValue();
 
 					for (int j = 0; j < wordsList.size(); j++) {
-						HashSet<String> keywordsContainedList = new HashSet<String>();
 						if(rawText != null){
 							JSONObject obj = (JSONObject) wordsList.get(j);
-							if(obj != null && null != obj.get("name"))
-							{
-								Map<String, Trie> triemap = broadcastedtriemap.value();
-								if(triemap != null && triemap.get(obj.get("name").toString()) != null)
+								Map<String, Trie> bTrieMap = broadcastedtriemap.value();
+								if(bTrieMap != null && bTrieMap.get(obj.get("name").toString()) != null)
 								{
-									Collection<Token> tokens = triemap.get(obj.get("name").toString()).tokenize(rawText.toLowerCase());
-									
+									Collection<Token> tokens = bTrieMap.get(obj.get("name").toString()).tokenize(rawText.toLowerCase());
+									HashSet<String> keywordsContainedList = new HashSet<String>();
 									for (Token token : tokens) {
 										if (token.isMatch()) {
 //											if(allowMisspellings.toLowerCase().equals("true")){
@@ -180,7 +161,6 @@ public class PhraseExtractor {
 										}
 									}
 									keywordsMap.put((String) obj.get("name"),keywordsContainedList);
-								}
 							}
 						}
 					}
@@ -194,36 +174,26 @@ public class PhraseExtractor {
 			
 			});
 			
+			words = words.coalesce(numofPartitions);
 //			words.saveAsTextFile(outputFile + new Random().nextInt());
-//			words = words.coalesce(numofPartitions);
 			words.saveAsNewAPIHadoopFile(outputFile, Text.class, Text.class, SequenceFileOutputFormat.class);
 		}
 	}
-
-	private static Trie getTrie(String wordsListJson,String type) throws ParseException{
-
+	
+	private static void createTries(String wordsListJson,Map<String, Trie> triemap) throws ParseException{
+		
 		JSONParser parser = new JSONParser();
 		JSONObject keywordsJsonArray = (JSONObject) parser.parse(wordsListJson);
 		JSONArray wordsList = (JSONArray) keywordsJsonArray.get("wordsList");
-		Trie trie = new Trie().removeOverlaps().onlyWholeWords().caseInsensitive();
-
 		for (int j = 0; j < wordsList.size(); j++) {
+			Trie trie = new Trie().removeOverlaps().onlyWholeWords().caseInsensitive();
 			JSONObject obj = (JSONObject) wordsList.get(j);
-			if (type.equals(obj.get("name").toString())) {
 				ArrayList<String> wordList = (ArrayList<String>) obj.get("words");
 				for (String word : wordList) {
 					trie.addKeyword(word.toLowerCase());
 				}
-			}
-
+			triemap.put(obj.get("name").toString(), trie);
 		}
-
-		return trie;
-
 	}
-
-
-
-
 
 }
