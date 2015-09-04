@@ -10,3 +10,10 @@ Arguments: 1) input json file <br />
 2) type : json or seq <br />
 3) keywords file : wordist_preprocessed.json <br />
 4) outputfile <br />
+<br /> 
+How to run github wordlist script <br /> 
+It pulls words from this link <br />
+https://github.com/usc-isi-i2/dig-alignment/tree/development/versions/2.0/wordlists/weapons <br />
+
+python wordList_preprocess.py --allowMisspellings [true/false] --output [pathtooutput]
+
