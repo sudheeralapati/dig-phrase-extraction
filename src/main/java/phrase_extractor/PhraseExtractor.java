@@ -47,6 +47,7 @@ public class PhraseExtractor {
 				Class.forName("org.apache.hadoop.io.Text")
 		});
 		*/
+		
 		SparkConf conf = new SparkConf().setAppName("findKeywords").registerKryoClasses(new Class<?>[]{
 				Class.forName("org.apache.hadoop.io.LongWritable"),
 				Class.forName("org.apache.hadoop.io.Text")
@@ -95,15 +96,10 @@ public class PhraseExtractor {
 						HashSet<String> keywordsContainedList = new HashSet<String>();
 						if(rawText != null){
 							JSONObject obj = (JSONObject) wordsList.get(j);
-							Collection<Token> tokens = broadcastedtriemap.value().get(obj.get("name").toString()).tokenize(rawText.toLowerCase());
+							Collection<Token> tokens = broadcastedtriemap.value().get(obj.get("name").toString()).tokenize(rawText);
 
 							for (Token token : tokens) {
 								if (token.isMatch()) {
-//									if(allowMisspellings.toLowerCase().equals("true")){
-//									 takes the correct from misspellings mapping the json file
-//										String correct_word = (String) broadcastMisspellings.getValue().get(token.getFragment().toLowerCase());
-//										keywordsContainedList.add("\""+ correct_word + "\"");
-//									}else{
 									if(token.getFragment() != null)
 										keywordsContainedList.add("\"" + token.getFragment() + "\"");
 //									}
@@ -146,17 +142,17 @@ public class PhraseExtractor {
 								Map<String, Trie> bTrieMap = broadcastedtriemap.value();
 								if(bTrieMap != null && bTrieMap.get(obj.get("name").toString()) != null)
 								{
-									Collection<Token> tokens = bTrieMap.get(obj.get("name").toString()).tokenize(rawText.toLowerCase());
+									Collection<Token> tokens = bTrieMap.get(obj.get("name").toString()).tokenize(rawText);
 									HashSet<String> keywordsContainedList = new HashSet<String>();
 									for (Token token : tokens) {
 										if (token.isMatch()) {
-//											if(allowMisspellings.toLowerCase().equals("true")){
-//											 takes the correct from misspellings mapping the json file
-//												String correct_word = (String) broadcastMisspellings.getValue().get(token.getFragment().toLowerCase());
-//												keywordsContainedList.add("\""+ correct_word + "\"");
-//											}else{
-											if(token.getFragment() != null)
-												keywordsContainedList.add("\"" + token.getFragment() + "\"");
+											if(token.getFragment() != null){
+												String correct_word = (String) broadcastMisspellings.getValue().get(token.getFragment());
+												if(correct_word != null)
+													keywordsContainedList.add("\"" + correct_word + "\"");
+												else
+													keywordsContainedList.add("\"" + token.getFragment() + "\"");
+											}
 //											}
 										}
 									}
@@ -184,13 +180,19 @@ public class PhraseExtractor {
 		
 		JSONParser parser = new JSONParser();
 		JSONObject keywordsJsonArray = (JSONObject) parser.parse(wordsListJson);
+		String capitalization = (String) keywordsJsonArray.get("capitalization");
 		JSONArray wordsList = (JSONArray) keywordsJsonArray.get("wordsList");
 		for (int j = 0; j < wordsList.size(); j++) {
-			Trie trie = new Trie().removeOverlaps().onlyWholeWords().caseInsensitive();
+			Trie trie = null;
+			if(capitalization.contains("insensitive")){
+				trie = new Trie().removeOverlaps().onlyWholeWords().caseInsensitive();
+			}else{
+				trie = new Trie().removeOverlaps().onlyWholeWords();
+			}
 			JSONObject obj = (JSONObject) wordsList.get(j);
 				ArrayList<String> wordList = (ArrayList<String>) obj.get("words");
 				for (String word : wordList) {
-					trie.addKeyword(word.toLowerCase());
+					trie.addKeyword(word);
 				}
 			triemap.put(obj.get("name").toString(), trie);
 		}
