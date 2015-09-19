@@ -17,7 +17,7 @@ def preprocessWordList(url):
     wordsJsonArray={}
     wordsJsonArray['misspellings']={}
     for wordListFile in wordsListFiles:
-        if wordListFile['name'] == 'json-wordlist.txt':
+        if wordListFile['name'] == 'phrase-list.json':
             download_url = wordListFile['download_url']
             file_contents = getHttpResponse(download_url)
             getWords(file_contents,wordsJsonArray)
