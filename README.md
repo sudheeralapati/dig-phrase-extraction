@@ -17,5 +17,5 @@ How to run github wordlist script <br />
 It pulls words from this link <br />
 https://github.com/usc-isi-i2/dig-alignment/tree/development/versions/2.0/wordlists/weapons <br />
 
-python wordList_preprocess.py --allowMisspellings [true/false] --output [pathtooutput]
+python wordList_preprocess.py --config [configfile] --output [pathtooutput]
 
