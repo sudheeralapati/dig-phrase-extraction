@@ -1,17 +1,7 @@
-package phrase_extractor;
-
-import java.io.IOException;
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.Map;
-import java.util.Random;
-import java.util.Set;
+package edu.isi.dig.prealignment;
 
 import org.ahocorasick.trie.Token;
 import org.ahocorasick.trie.Trie;
-import org.apache.commons.logging.impl.Log4jFactory;
 import org.apache.hadoop.io.Text;
 import org.apache.hadoop.mapreduce.lib.output.SequenceFileOutputFormat;
 import org.apache.log4j.Logger;
@@ -25,8 +15,12 @@ import org.json.simple.JSONArray;
 import org.json.simple.JSONObject;
 import org.json.simple.parser.JSONParser;
 import org.json.simple.parser.ParseException;
-
 import scala.Tuple2;
+
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Paths;
+import java.util.*;
 
 
 public class PhraseExtractor {
@@ -37,9 +31,9 @@ public class PhraseExtractor {
 	public static void main(final String[] args) throws IOException, ClassNotFoundException, ParseException {
 		String inputFile = args[0];
 		String type = args[1];
-		String keywordsFile = args[2];
+		String keywordsFileName = args[2];
 		String outputFile = args[3];
-		Integer numofPartitions = Integer.parseInt(args[4]);
+		Integer numOfPartitions = Integer.parseInt(args[4]);
 
 		/*
 		SparkConf conf = new SparkConf().setAppName("findKeywords").set("spark.io.compression.codec", "lzf").setMaster("local").registerKryoClasses(new Class<?>[]{
@@ -55,8 +49,7 @@ public class PhraseExtractor {
 		
 		@SuppressWarnings("resource")
 		JavaSparkContext sc = new JavaSparkContext(conf);
-		JavaRDD<String> keywordsRDD = sc.textFile(keywordsFile);
-		final String wordsListJson = keywordsRDD.first();
+		final String wordsListJson = new String(Files.readAllBytes(Paths.get(keywordsFileName)));
 
 
 		JSONParser parser = new JSONParser();
@@ -65,7 +58,7 @@ public class PhraseExtractor {
 		final JSONObject misspellings = (JSONObject) keywordsJsonArray.get("misspellings");
 		JSONArray wordsList = (JSONArray) keywordsJsonArray.get("wordsList");
 
-		Map<String, Trie> triemap = new HashMap<String, Trie>();
+		Map<String, Trie> triemap = new HashMap<>();
 		createTries(wordsListJson,triemap);
 	
 		final Broadcast<Map<String, Trie>> broadcastedtriemap = sc.broadcast(triemap);
@@ -73,7 +66,7 @@ public class PhraseExtractor {
 		final Broadcast<org.json.simple.JSONObject> broadcastMisspellings = sc.broadcast(misspellings);
 
 		if (type.equals("text")) {
-			JavaRDD<String> jsonRDD = sc.textFile(inputFile,numofPartitions);
+			JavaRDD<String> jsonRDD = sc.textFile(inputFile,numOfPartitions);
 
 			JavaPairRDD<Text, Text> wordsRDD= jsonRDD.mapToPair(new PairFunction<String, Text, Text>() {
 				@Override
@@ -89,11 +82,11 @@ public class PhraseExtractor {
 						rawText = (String) ((JSONObject) row.get("_source")).get("text");
 					}
 
-					HashMap<String, HashSet<String>> keywordsMap = new HashMap<String, HashSet<String>>();
+					HashMap<String, HashSet<String>> keywordsMap = new HashMap<>();
 					JSONArray wordsList = broadcastWordsList.getValue();
 
 					for (int j = 0; j < wordsList.size(); j++) {
-						HashSet<String> keywordsContainedList = new HashSet<String>();
+						HashSet<String> keywordsContainedList = new HashSet<>();
 						if(rawText != null){
 							JSONObject obj = (JSONObject) wordsList.get(j);
 							Collection<Token> tokens = broadcastedtriemap.value().get(obj.get("name").toString()).tokenize(rawText);
@@ -110,7 +103,7 @@ public class PhraseExtractor {
 						}
 					}
 
-					return new Tuple2<Text, Text>(new Text(line.split("\t")[0]), new Text(row.toJSONString()));
+					return new Tuple2<>(new Text(line.split("\t")[0]), new Text(row.toJSONString()));
 
 
 				}
@@ -118,7 +111,7 @@ public class PhraseExtractor {
 			wordsRDD.saveAsNewAPIHadoopFile(outputFile, Text.class, Text.class, SequenceFileOutputFormat.class);
 
 		} else {
-			JavaPairRDD<Text, Text> sequenceRDD = sc.sequenceFile(inputFile, Text.class, Text.class,numofPartitions);
+			JavaPairRDD<Text, Text> sequenceRDD = sc.sequenceFile(inputFile, Text.class, Text.class,numOfPartitions);
 			
 			
 			JavaPairRDD<Text, Text> words = sequenceRDD.mapToPair(new PairFunction<Tuple2<Text,Text>, Text, Text>() {
@@ -153,7 +146,6 @@ public class PhraseExtractor {
 												else
 													keywordsContainedList.add("\"" + token.getFragment() + "\"");
 											}
-//											}
 										}
 									}
 									keywordsMap.put((String) obj.get("name"),keywordsContainedList);
@@ -165,13 +157,12 @@ public class PhraseExtractor {
 				jsonOutput.put("wordslists", keywordsMap);
 				jsonOutput.put("uri",uri);
 				
-				return new Tuple2<Text, Text>(new Text(uri), new Text(jsonOutput.toJSONString()));
+				return new Tuple2<>(new Text(uri), new Text(jsonOutput.toJSONString()));
 			}
 			
 			});
 			
-			words = words.coalesce(numofPartitions);
-//			words.saveAsTextFile(outputFile + new Random().nextInt());
+			words = words.coalesce(numOfPartitions);
 			words.saveAsNewAPIHadoopFile(outputFile, Text.class, Text.class, SequenceFileOutputFormat.class);
 		}
 	}
@@ -182,6 +173,9 @@ public class PhraseExtractor {
 		JSONObject keywordsJsonArray = (JSONObject) parser.parse(wordsListJson);
 		String capitalization = (String) keywordsJsonArray.get("capitalization");
 		JSONArray wordsList = (JSONArray) keywordsJsonArray.get("wordsList");
+		if (capitalization == null) {
+			capitalization = "case insensitive";
+		}
 		for (int j = 0; j < wordsList.size(); j++) {
 			Trie trie = null;
 			if(capitalization.contains("insensitive")){

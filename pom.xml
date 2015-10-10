@@ -2,45 +2,10 @@
 	xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
 	<modelVersion>4.0.0</modelVersion>
 
-	<groupId>org.ahocorasick</groupId>
-	<artifactId>ahocorasick</artifactId>
-	<version>0.2.4</version>
+	<groupId>edu.isi.dig.prealignment</groupId>
+	<artifactId>phraseextractor</artifactId>
+	<version>0.0.1-SNAPSHOT</version>
 	<packaging>jar</packaging>
-	<name>Aho-CoraSick algorithm for efficient string matching</name>
-	<description>Java library for efficient string matching against a large set of keywords</description>
-	<inceptionYear>2014</inceptionYear>
-	<url>http://ahocorasick.org</url>
-
-	<parent>
-		<groupId>org.sonatype.oss</groupId>
-		<artifactId>oss-parent</artifactId>
-		<version>7</version>
-	</parent>
-
-	<organization>
-		<name>42 BV</name>
-		<url>http://blog.42.nl/</url>
-	</organization>
-
-	<licenses>
-		<license>
-			<name>The Apache Software License, Version 2.0</name>
-			<url>http://www.apache.org/licenses/LICENSE-2.0.txt</url>
-			<distribution>repo</distribution>
-		</license>
-	</licenses>
-
-	<scm>
-		<url>scm:git://github.com/robert-bor/aho-corasick</url>
-		<connection>scm:git://github.com/robert-bor/aho-corasick</connection>
-	</scm>
-
-	<developers>
-		<developer>
-			<name>Robert Bor</name>
-			<organization>42</organization>
-		</developer>
-	</developers>
 
 	<properties>
 		<junit.version>4.10</junit.version>
@@ -59,6 +24,12 @@
   </repositories>
   
 	<dependencies>
+
+		<dependency>
+			<groupId>org.ahocorasick</groupId>
+			<artifactId>ahocorasick</artifactId>
+			<version>0.2.4</version>
+		</dependency>
 
 		<!-- Used for unit testing -->
 		<dependency>
@@ -172,6 +143,13 @@
 									</excludes>
 								</filter>
 							</filters>
+							<artifactSet>
+								<excludes>
+									<exclude>org.apache.spark:*</exclude>
+									<exclude>org.spark-project.akka:*</exclude>
+									<exclude>org.spark-project.spark:*</exclude>
+								</excludes>
+							</artifactSet>
 						</configuration>
 						<executions>
 							<execution>

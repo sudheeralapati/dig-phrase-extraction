@@ -5,3 +5,4 @@ src/main/java/Main.java
 docs
 target/*
 /target/
+.DS_Store
